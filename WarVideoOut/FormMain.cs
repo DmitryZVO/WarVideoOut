@@ -9,6 +9,16 @@ namespace WarVideoOut;
 
 public partial class FormMain : Form
 {
+    // Формат пакета
+    // 0x70, 0x70 - ZVO заголовок (2 байта)
+    // 0x01 - тип пакета (1 байт) 1 - кадр видео
+    // 0x00000000 - номер кадра (4 байта)
+    // 0x0000 - текущий номер куска данных (2 байта)
+    // 0x0000 - всего кусков данных (2 байта)
+    // 0x0000 - текущая длинна полезной нагрузки (2 байта)
+    // [N].. тело полезной нагрузки
+    private const int LenHeader = 2 + 1 + 4 + 2 + 2 + 2;
+
     private VideoCapture capture;
     private readonly OpenCvSharp.Size resolution = new(320, 240);
     private readonly Timer timerFrame;
@@ -123,10 +133,12 @@ public partial class FormMain : Form
         // 0x0000 - текущая длинна полезной нагрузки (2 байта)
         // [N].. тело полезной нагрузки
 
-        const int LenHeader = 2 + 1 + 4 + 2 + 2 + 2;
         ushort all = (ushort)(data.Length / payloadSize);
 
         using UdpClient udp = new();
+        udp.Client.ReceiveBufferSize = 65536 * 1000; // Обязательно большие буфера!!!
+        udp.Client.SendBufferSize = 65536 * 1000; // Обязательно большие буфера!!!
+        udp.EnableBroadcast = true;
 
         for (ushort i = 0; i < all; i++)
         {
@@ -140,7 +152,9 @@ public partial class FormMain : Form
             Array.Copy(BitConverter.GetBytes(plsize), 0, dataToSend, 11, 2); // длинна текущей полезной нагрузки
             Array.Copy(data, i * plsize, dataToSend, 13, plsize); // полезная нагрузка
 
-            udp.Send(dataToSend, dataToSend.Length, new IPEndPoint(IPAddress.Parse("255.255.255.255"), 7777));
+            //udp.Send(dataToSend, dataToSend.Length, new IPEndPoint(IPAddress.Parse("255.255.255.255"), 7777));
+            //udp.Send(dataToSend, dataToSend.Length, new IPEndPoint(IPAddress.Parse("192.168.0.149"), 7777)); // wifi NUC
+            udp.Send(dataToSend, dataToSend.Length, new IPEndPoint(IPAddress.Parse("192.168.0.153"), 7777)); // wifi ноут ROG
             bytesOut += dataToSend.Length;
             ppsCount++;
         }
