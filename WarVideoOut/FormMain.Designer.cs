@@ -100,6 +100,7 @@
             Controls.Add(trackBarFps);
             Controls.Add(label1);
             Controls.Add(pictureBoxMain);
+            FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             Name = "FormMain";
             ShowIcon = false;

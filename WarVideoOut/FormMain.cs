@@ -1,6 +1,7 @@
 using OpenCvSharp;
 using OpenCvSharp.Extensions;
-using System;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using Timer = System.Windows.Forms.Timer;
 
@@ -18,6 +19,7 @@ public partial class FormMain : Form
     private int portUdp = 7777;
     private float outSpeed = 0.0f;
     private int outPPs = 0;
+    private int ppsCount = 0;
     private int bytesOut = 0;
 
     private readonly string videoFile = "video.mp4";
@@ -64,9 +66,10 @@ public partial class FormMain : Form
 
     private void Timer1Sec_Tick(object? sender, EventArgs e)
     {
-        outSpeed = bytesOut / 1000000.0f;
-        outPPs = bytesOut / payloadSize;
+        outSpeed = (bytesOut*8) / 1000000.0f;
+        outPPs = ppsCount;
         bytesOut = 0;
+        ppsCount = 0;
     }
 
     private void TimerFrame_Tick(object? sender, EventArgs e)
@@ -87,7 +90,7 @@ public partial class FormMain : Form
             // Добавляем кадр в очередь на отправку
             var bytes = new byte[frameRes.Total() * 3];
             Marshal.Copy(frameRes.Data, bytes, 0, bytes.Length);
-            AddToSend(bytes);
+            AddToSend(bytes, frameCount, (ushort)payloadSize);
 
             // Отображаем кадр
             Bitmap bitmap = BitmapConverter.ToBitmap(frameRes);
@@ -109,9 +112,38 @@ public partial class FormMain : Form
         }
     }
 
-    private void AddToSend(byte[] data)
+    private void AddToSend(byte[] data, int frameNumber, ushort plsize)
     {
-        bytesOut += data.Length;
+        // Формат пакета
+        // 0x70, 0x70 - ZVO заголовок (2 байта)
+        // 0x01 - тип пакета (1 байт) 1 - кадр видео
+        // 0x00000000 - номер кадра (4 байта)
+        // 0x0000 - текущий номер куска данных (2 байта)
+        // 0x0000 - всего кусков данных (2 байта)
+        // 0x0000 - текущая длинна полезной нагрузки (2 байта)
+        // [N].. тело полезной нагрузки
+
+        const int LenHeader = 2 + 1 + 4 + 2 + 2 + 2;
+        ushort all = (ushort)(data.Length / payloadSize);
+
+        using UdpClient udp = new();
+
+        for (ushort i = 0; i < all; i++)
+        {
+            var dataToSend = new byte[LenHeader + payloadSize];
+            dataToSend[0] = 0x70; // Заголовок HI
+            dataToSend[1] = 0x70; // Заголовок LO
+            dataToSend[2] = 0x01; // Тип пакета
+            Array.Copy(BitConverter.GetBytes(frameNumber), 0, dataToSend, 3, 4); // номер кадра
+            Array.Copy(BitConverter.GetBytes((ushort)(i+1)), 0, dataToSend, 7, 2); // номер куска
+            Array.Copy(BitConverter.GetBytes(all), 0, dataToSend, 9, 2); // всего кусков
+            Array.Copy(BitConverter.GetBytes(plsize), 0, dataToSend, 11, 2); // длинна текущей полезной нагрузки
+            Array.Copy(data, i * plsize, dataToSend, 13, plsize); // полезная нагрузка
+
+            udp.Send(dataToSend, dataToSend.Length, new IPEndPoint(IPAddress.Parse("255.255.255.255"), 7777));
+            bytesOut += dataToSend.Length;
+            ppsCount++;
+        }
     }
 
     private void FormMain_Shown(object? sender, EventArgs e)
